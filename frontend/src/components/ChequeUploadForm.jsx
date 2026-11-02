@@ -6,9 +6,10 @@ export default function ChequeUploadForm({ onCreated }) {
   const [chequeNumber, setChequeNumber] = useState("");
   const [ifsc, setIfsc] = useState("");
   const [accountNumber, setAccountNumber] = useState("");
-  const [draweeIfsc, setDraweeIfsc] = useState("HDFC0005678");
+  const [draweeIfsc, setDraweeIfsc] = useState("HDFC0000128");
   const [payeeName, setPayeeName] = useState("");
   const [amount, setAmount] = useState("");
+  const [whatsappNumber, setWhatsappNumber] = useState("+91 98765 43210");
   const [file, setFile] = useState(null);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -17,11 +18,137 @@ export default function ChequeUploadForm({ onCreated }) {
   const [warnings, setWarnings] = useState([]);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
 
+  // Positive Pay Pre-Verification state
+  const [verifyingPps, setVerifyingPps] = useState(false);
+  const [ppsResult, setPpsResult] = useState(null);
+  const [selectedPresetId, setSelectedPresetId] = useState(null);
+
   const [canvasFilter, setCanvasFilter] = useState("raw"); // "raw" | "grayscale" | "otsu" | "sobel"
   const [showBoundingBoxes, setShowBoundingBoxes] = useState(true);
   const [previewImageUrl, setPreviewImageUrl] = useState("/sample-cheque.jpg");
   const [detectedBoxes, setDetectedBoxes] = useState(null);
   const canvasRef = useRef(null);
+
+  const BANK_PRESETS = [
+    {
+      id: "preset-corp-dividend",
+      label: "Reliance Dividend",
+      amount: "1850000.00",
+      payee: "RELIANCE INDUSTRIES TREASURY",
+      chqNo: "000412",
+      ifsc: "SNBL0001001",
+      accNo: "501004819203",
+      draweeIfsc: "HDFC0000128",
+      phone: "+91 98765 43210",
+      image: "/cheque-000102.jpg",
+      badge: "STP Clean",
+      badgeColor: "emerald",
+    },
+    {
+      id: "preset-escrow-realestate",
+      label: "L&T Escrow",
+      amount: "14500000.00",
+      payee: "LARSEN & TOUBRO INFRASTRUCTURE LTD",
+      chqNo: "000889",
+      ifsc: "SBIN0000484",
+      accNo: "302948192019",
+      draweeIfsc: "HDFC0000128",
+      phone: "+91 98251 44012",
+      image: "/sample-cheque.jpg",
+      badge: "High-Value",
+      badgeColor: "cyan",
+    },
+    {
+      id: "preset-chemical-wash",
+      label: "Altered Cheque",
+      amount: "980000.00",
+      payee: "RAJESH EXPORTS (ALTERED)",
+      chqNo: "000305",
+      ifsc: "SNBL0001001",
+      accNo: "102938475612",
+      draweeIfsc: "HDFC0000128",
+      phone: "+91 98765 43210",
+      image: "/cheque-000123.jpg",
+      badge: "UV Anomaly",
+      badgeColor: "rose",
+    },
+    {
+      id: "preset-section-138",
+      label: "Sec 138 Bounce",
+      amount: "420000.00",
+      payee: "APEX RETAIL SOLUTIONS PVT LTD",
+      chqNo: "000671",
+      ifsc: "SNBL0001001",
+      accNo: "501002938101",
+      draweeIfsc: "HDFC0000128",
+      phone: "+91 98251 44012",
+      image: "/cheque-000102.jpg",
+      badge: "Legal Notice",
+      badgeColor: "amber",
+    },
+    {
+      id: "preset-mule-alert",
+      label: "Mule Network",
+      amount: "2200000.00",
+      payee: "FINOVA MATRIX SHELL TRADERS",
+      chqNo: "000924",
+      ifsc: "SBIN0000484",
+      accNo: "910293847561",
+      draweeIfsc: "SNBL0001001",
+      phone: "+91 98765 43210",
+      image: "/sample-cheque.jpg",
+      badge: "MuleHold",
+      badgeColor: "purple",
+    },
+  ];
+
+  function applyPreset(preset) {
+    setSelectedPresetId(preset.id);
+    setChequeNumber(preset.chqNo);
+    setIfsc(preset.ifsc);
+    setAccountNumber(preset.accNo);
+    setDraweeIfsc(preset.draweeIfsc);
+    setPayeeName(preset.payee);
+    setAmount(preset.amount);
+    setWhatsappNumber(preset.phone);
+    setPreviewImageUrl(preset.image);
+    setFile(null);
+    setError("");
+    setPpsResult(null);
+
+    // Auto verify PPS in background
+    verifyPpsDirect({
+      chequeNumber: preset.chqNo,
+      accountNumber: preset.accNo,
+      amount: preset.amount,
+      payeeName: preset.payee,
+    });
+  }
+
+  async function verifyPpsDirect(params) {
+    setVerifyingPps(true);
+    try {
+      const { data } = await client.post("/cheques/pps-verify", params);
+      setPpsResult(data);
+    } catch {
+      setPpsResult(null);
+    } finally {
+      setVerifyingPps(false);
+    }
+  }
+
+  async function handleManualPpsVerify() {
+    if (!chequeNumber || !accountNumber || !amount) {
+      setError("Enter Cheque Number, Account Number, and Amount to verify Positive Pay.");
+      return;
+    }
+    verifyPpsDirect({
+      chequeNumber,
+      accountNumber,
+      amount,
+      payeeName,
+    });
+  }
 
   // Client-side canvas preprocessing: Grayscale, Otsu binarization, Sobel edge detection
   useEffect(() => {
@@ -225,6 +352,7 @@ export default function ChequeUploadForm({ onCreated }) {
     formData.append("payeeName", payeeName);
     formData.append("amount", amount);
     formData.append("draweeIfsc", draweeIfsc);
+    if (whatsappNumber) formData.append("whatsappNumber", whatsappNumber);
     if (file) formData.append("chequeImage", file);
 
     setSubmitting(true);
@@ -273,7 +401,12 @@ export default function ChequeUploadForm({ onCreated }) {
       <form onSubmit={handleSubmit} className="bg-slate-900/90 rounded-2xl shadow-xl border border-slate-800 p-6 sm:p-8 space-y-7 backdrop-blur-md">
         <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-800">
           <div>
-            <h2 className="font-black text-xl text-white tracking-tight">Present Cheque for Clearing</h2>
+            <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-950/70 text-cyan-300 border border-cyan-800/80 mb-1.5">
+              <span>NPCI CTS-2010</span>
+              <span>·</span>
+              <span>E-13B Optical Character Recognition</span>
+            </div>
+            <h2 className="font-black text-xl text-white tracking-tight">Executive Cheque Presentation Studio</h2>
           </div>
 
           <div className="flex items-center gap-2">
@@ -286,6 +419,98 @@ export default function ChequeUploadForm({ onCreated }) {
             </button>
           </div>
         </div>
+
+        {/* 1-Click Bank Pitch Demo Presets Strip */}
+        <div className="p-4 rounded-2xl bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border border-cyan-800/60 space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs font-bold font-mono uppercase tracking-wider text-cyan-300 flex items-center gap-1.5">
+              <span>⚡</span>
+              <span>Bank Pitch Demo Presets (1-Click Instrument Injection)</span>
+            </span>
+            <span className="text-[11px] text-slate-400">Click a preset to test live banking workflows:</span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+            {BANK_PRESETS.map((p) => {
+              const isSelected = selectedPresetId === p.id;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => applyPreset(p)}
+                  className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                    isSelected
+                      ? "bg-cyan-950/80 border-cyan-400 text-white shadow-md shadow-cyan-950/40"
+                      : "bg-slate-900/70 border-slate-700/80 hover:bg-slate-800 text-slate-300"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-1 mb-1">
+                    <span className="text-[11px] font-bold line-clamp-1">{p.label}</span>
+                    <span
+                      className={`text-[9px] font-mono font-bold px-1 py-0.5 rounded ${
+                        p.badgeColor === "emerald"
+                          ? "bg-emerald-950/80 text-emerald-300 border border-emerald-800/80"
+                          : p.badgeColor === "rose"
+                          ? "bg-rose-950/80 text-rose-300 border border-rose-800/80"
+                          : p.badgeColor === "amber"
+                          ? "bg-amber-950/80 text-amber-300 border border-amber-800/80"
+                          : p.badgeColor === "purple"
+                          ? "bg-purple-950/80 text-purple-300 border border-purple-800/80"
+                          : "bg-cyan-950/80 text-cyan-300 border border-cyan-800/80"
+                      }`}
+                    >
+                      {p.badge}
+                    </span>
+                  </div>
+                  <span className="text-xs font-mono font-bold text-cyan-400">
+                    ₹{Number(p.amount).toLocaleString("en-IN")}
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono truncate mt-0.5">#{p.chqNo}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Positive Pay Pre-Verification Status Card */}
+        {ppsResult && (
+          <div
+            className={`p-4 rounded-2xl border text-xs flex flex-wrap items-center justify-between gap-3 animate-in fade-in duration-150 ${
+              ppsResult.ppsStatus === "PPS_VERIFIED"
+                ? "bg-emerald-950/40 border-emerald-600/80 text-emerald-200"
+                : ppsResult.ppsStatus === "PPS_MISMATCH"
+                ? "bg-rose-950/50 border-rose-600/80 text-rose-200"
+                : "bg-slate-950/70 border-slate-700 text-slate-300"
+            }`}
+          >
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="font-bold uppercase tracking-wider font-mono">
+                  NPCI Positive Pay Registry (PPS):
+                </span>
+                <span
+                  className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${
+                    ppsResult.ppsStatus === "PPS_VERIFIED"
+                      ? "bg-emerald-800/80 text-emerald-100"
+                      : ppsResult.ppsStatus === "PPS_MISMATCH"
+                      ? "bg-rose-800/80 text-rose-100"
+                      : "bg-slate-800 text-slate-300"
+                  }`}
+                >
+                  {ppsResult.ppsStatus}
+                </span>
+              </div>
+              <p className="text-[11px] opacity-90">{ppsResult.message}</p>
+            </div>
+            <button
+              type="button"
+              onClick={handleManualPpsVerify}
+              disabled={verifyingPps}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 transition-colors cursor-pointer"
+            >
+              {verifyingPps ? "Verifying..." : "Re-Verify Mandate"}
+            </button>
+          </div>
+        )}
 
         {error && <div className="bg-red-950/60 text-red-300 text-xs font-semibold rounded-xl p-4 border border-red-800/80">{error}</div>}
 
@@ -450,82 +675,145 @@ export default function ChequeUploadForm({ onCreated }) {
           </div>
         )}
 
-        {/* Form Fields Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Form Fields Grid in Dark Institutional Theme */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
           <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Cheque Number (6 digits)</label>
+            <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">Cheque Number (6 digits)</label>
             <input
               value={chequeNumber}
               onChange={(e) => setChequeNumber(e.target.value)}
               required
               maxLength={6}
-              className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-sm font-mono text-slate-900 focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all"
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm font-mono text-white placeholder-slate-500 focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all"
               placeholder="000123"
             />
           </div>
           <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Payer Bank IFSC (from MICR)</label>
+            <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">Payer Bank IFSC (from MICR)</label>
             <input
               value={ifsc}
               onChange={(e) => setIfsc(e.target.value.toUpperCase())}
               required
-              className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-sm font-mono uppercase text-slate-900 focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all"
-              placeholder="SBIN0001234"
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm font-mono uppercase text-white placeholder-slate-500 focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all"
+              placeholder="SNBL0001001"
             />
           </div>
           <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Payer Account Number</label>
+            <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">Payer Account Number</label>
             <input
               value={accountNumber}
               onChange={(e) => setAccountNumber(e.target.value)}
               required
-              className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-sm font-mono text-slate-900 focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all"
-              placeholder="123456789012"
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm font-mono text-white placeholder-slate-500 focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all"
+              placeholder="501004819203"
             />
           </div>
           <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Drawee Bank IFSC</label>
+            <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">Drawee Bank IFSC</label>
             <input
               value={draweeIfsc}
               onChange={(e) => setDraweeIfsc(e.target.value.toUpperCase())}
               required
-              className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-sm font-mono uppercase text-slate-900 focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all"
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm font-mono uppercase text-white placeholder-slate-500 focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all"
+              placeholder="HDFC0000128"
             />
           </div>
           <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Payee Name</label>
+            <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">Payee Name</label>
             <input
               value={payeeName}
               onChange={(e) => setPayeeName(e.target.value)}
               required
-              className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-900 focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all"
-              placeholder="Acme Enterprises"
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm font-semibold text-white placeholder-slate-500 focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all"
+              placeholder="Acme Industrial Corp"
             />
           </div>
           <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Amount (INR ₹)</label>
+            <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">Amount (INR ₹)</label>
             <input
               type="number"
               step="0.01"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               required
-              className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-sm font-mono font-bold text-slate-900 focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all"
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm font-mono font-bold text-white placeholder-slate-500 focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all"
               placeholder="50000.00"
+            />
+          </div>
+
+          {/* Customer WhatsApp Notification Target */}
+          <div className="md:col-span-3 p-4 rounded-2xl bg-emerald-950/40 border border-emerald-700/60 space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label className="text-xs font-bold text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
+                <span>💬 Customer WhatsApp Alert Mobile</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-900/80 text-emerald-200 border border-emerald-600/50 font-semibold">
+                  Zero-Click Instant Real-Time
+                </span>
+              </label>
+              <div className="flex items-center gap-1.5 text-[11px]">
+                <span className="text-slate-400">Autofill:</span>
+                <button
+                  type="button"
+                  onClick={() => setWhatsappNumber("+91 98765 43210")}
+                  className="px-2 py-0.5 rounded-lg bg-emerald-900/60 hover:bg-emerald-800 text-emerald-300 border border-emerald-700/60 font-mono cursor-pointer transition-colors"
+                >
+                  Dummy: +91 98765 43210
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWhatsappNumber("+91 98251 44012")}
+                  className="px-2 py-0.5 rounded-lg bg-emerald-900/60 hover:bg-emerald-800 text-emerald-300 border border-emerald-700/60 font-mono cursor-pointer transition-colors"
+                >
+                  Dummy: +91 98251 44012
+                </button>
+              </div>
+            </div>
+            <input
+              value={whatsappNumber}
+              onChange={(e) => setWhatsappNumber(e.target.value)}
+              className="w-full bg-slate-950/90 border border-emerald-700/60 rounded-xl px-4 py-2.5 text-xs font-mono text-white placeholder-slate-500 focus:ring-2 focus:ring-emerald-500 outline-none"
+              placeholder="+91 98765 43210"
             />
           </div>
         </div>
 
+        {/* E-13B MICR Line Interactive Visualizer */}
+        <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+          <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
+            <span>E-13B MICR ENCODING BAND (CTS-2010 STANDARD):</span>
+            <span className="text-cyan-400 font-bold">FIPS 140-2 Level 3 Hash Sealed</span>
+          </div>
+          <div className="grid grid-cols-4 gap-2 font-mono text-center">
+            <div className="p-2 rounded-lg bg-slate-900 border border-slate-700">
+              <span className="text-[10px] text-slate-500 block">CHEQUE NO</span>
+              <span className="text-xs font-bold text-cyan-300">{chequeNumber ? chequeNumber.padStart(6, "0") : "⑈ 000123 ⑈"}</span>
+            </div>
+            <div className="p-2 rounded-lg bg-slate-900 border border-slate-700">
+              <span className="text-[10px] text-slate-500 block">CITY-BANK-SORT</span>
+              <span className="text-xs font-bold text-cyan-300">395085002</span>
+            </div>
+            <div className="p-2 rounded-lg bg-slate-900 border border-slate-700">
+              <span className="text-[10px] text-slate-500 block">ACCOUNT NUMBER</span>
+              <span className="text-xs font-bold text-cyan-300 truncate block">{accountNumber || "501004819203"}</span>
+            </div>
+            <div className="p-2 rounded-lg bg-slate-900 border border-slate-700">
+              <span className="text-[10px] text-slate-500 block">TRANS CODE</span>
+              <span className="text-xs font-bold text-emerald-400">10 (SAVINGS/CA)</span>
+            </div>
+          </div>
+        </div>
+
         <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-          <div className="text-xs text-slate-500 font-mono">
-            MICR: {chequeNumber ? `${chequeNumber.padStart(6, "0")} ${ifsc} ${accountNumber} 10` : "Enter details above to preview MICR band"}
+          <div className="text-xs text-slate-400 font-mono flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-cyan-400" />
+            <span>Ready for National Switch Transmission</span>
           </div>
           <button
             type="submit"
             disabled={submitting}
-            className="bg-brand-600 hover:bg-brand-700 text-white rounded-xl px-6 py-3 text-sm font-bold transition-all disabled:opacity-50 shadow-xs cursor-pointer tracking-wide whitespace-nowrap"
+            className="bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl px-7 py-3 text-sm font-bold transition-all disabled:opacity-50 shadow-lg shadow-cyan-950/50 cursor-pointer tracking-wide whitespace-nowrap flex items-center gap-2"
           >
-            {submitting ? "Presenting Cheque..." : "Present Cheque into Clearing"}
+            <span>{submitting ? "Presenting Cheque..." : "⚡ Present Cheque into Clearing"}</span>
           </button>
         </div>
       </form>

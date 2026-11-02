@@ -19,6 +19,15 @@ const { broadcastEvent } = require("../utils/sse.util");
 // In-Memory message ring buffer (last 500 messages)
 const messageLogs = [];
 
+// Real-Time Active WhatsApp Registered Customer Target
+let activeCustomer = {
+  phone: "+91 98765 43210",
+  name: "Rajesh Varma",
+  accountNumber: "102030401001",
+  isAutomated: true,
+  registeredAt: new Date().toISOString(),
+};
+
 // Configuration settings (can be overridden via ENV or API)
 let gatewayConfig = {
   provider: process.env.MESSAGING_PROVIDER || "VIRTUAL_SIMULATOR", // "VIRTUAL_SIMULATOR", "META_CLOUD", "TWILIO", "CALLMEBOT", "FAST2SMS"
@@ -37,6 +46,13 @@ let gatewayConfig = {
 
 // Regulatory DLT-Registered SMS Templates & WhatsApp Interactive Templates
 const TEMPLATES = {
+  WELCOME_ACTIVATION: {
+    id: "DLT-SNB-WA-ACTIVATE-00",
+    name: "Instant WhatsApp Banking Activation",
+    sms: "SURAT PEOPLES CO OP BANK: Instant WhatsApp Banking activated for mobile {recipient}. Real-time CTS alerts enabled. Helpline: 1800-233-1234.",
+    whatsapp: "🏦 *SURAT PEOPLES CO OP BANK*\n*Official 24/7 WhatsApp Banking Rail*\n\nNamaste *{customerName}*! 👋\n\nYour mobile number *{recipient}* is now linked for *Instant Real-Time CTS Clearing Alerts*.\n\n⚡ *Zero-Click Real-Time Automation: ACTIVE*\nYou will receive automatic real-time alerts whenever cheques are presented, verified, cleared, or settled on your account.\n\n*Quick Commands:*\n• *STATUS 000101* — Track cheque clearance\n• *BALANCE* — Check available balance & liens\n• *PPS <chequeNo> <amount> <payee>* — Pre-authorize cheque\n• *STOP <chequeNo>* — Immediate stop payment\n• *MENU* — Interactive options",
+    actions: ["STATUS 000101", "BALANCE", "PPS Register", "Menu"],
+  },
   CHEQUE_PRESENTED: {
     id: "DLT-SNB-CHQ-PRES-01",
     name: "Cheque Presented Alert",
@@ -44,11 +60,18 @@ const TEMPLATES = {
     whatsapp: "🏦 *SURAT PEOPLES CO OP BANK*\n*Inward Cheque Presentation Alert*\n\nDear Customer,\nCheque *#{chequeNumber}* for *₹{amount}* has been received in CTS clearing.\n\n📋 *Details:*\n• *Account:* {accountNumber}\n• *Payee:* {payeeName}\n• *Drawee Bank:* {draweeBank}\n• *Clearing Cycle:* Standard T+0\n\n_If you did not issue this instrument, reply *STOP {chequeNumber}* immediately._",
     actions: ["Check Status", "Positive Pay", "Stop Payment"],
   },
+  CHEQUE_VERIFIED: {
+    id: "DLT-SNB-CHQ-VER-02",
+    name: "Cheque Verified by Drawee Bank",
+    sms: "Dear Customer, Cheque #{chequeNumber} (Rs.{amount}) has passed AI OCR & signature verification at Drawee Bank. Awaiting final checker sign-off. - SURAT PEOPLES CO OP BANK",
+    whatsapp: "🔍 *SURAT PEOPLES CO OP BANK*\n*Cheque Verification In Progress*\n\nDear Customer,\nCheque *#{chequeNumber}* for *₹{amount}* has successfully passed Drawee Maker & AI Biometric Signature inspection.\n\n📋 *Clearing Tracker:*\n• *Payee:* {payeeName}\n• *Account:* {accountNumber}\n• *Current Stage:* 4-Eyes Senior Checker Sign-off\n• *Expected Settlement:* Continuous T+0 Cycle\n\n_We will notify you the moment e-Kuber funds settlement completes._",
+    actions: ["Check Status", "Download Receipt", "Menu"],
+  },
   CHEQUE_CLEARED: {
     id: "DLT-SNB-CHQ-CLR-02",
     name: "Cheque Cleared & Debited Alert",
     sms: "Dear Customer, Cheque #{chequeNumber} for Rs.{amount} has been CLEARED from a/c {accountNumber}. e-Kuber UTR: {utr}. Updated Available Balance: Rs.{balance}. - SURAT PEOPLES CO OP BANK",
-    whatsapp: "✅ *SURAT PEOPLES CO OP BANK*\n*Cheque Clearance Confirmation*\n\nDear Customer,\nYour Cheque *#{chequeNumber}* for *₹{amount}* has been successfully *CLEARED*.\n\n🧾 *Transaction Details:*\n• *Account Debited:* {accountNumber}\n• *Beneficiary:* {payeeName}\n• *e-Kuber UTR:* `{utr}`\n• *Settlement Mode:* {settlementMode}\n• *Status:* Realised & Dispatched\n\nThank you for banking with SURAT PEOPLES CO OP BANK.",
+    whatsapp: "✅ *SURAT PEOPLES CO OP BANK*\n*Cheque Clearance Confirmation*\n\nDear Customer,\nYour Cheque *#{chequeNumber}* for *₹{amount}* has been successfully *CLEARED*.\n\n🧾 *Transaction Details:*\n• *Account Debited:* {accountNumber}\n• *Beneficiary:* {payeeName}\n• *e-Kuber UTR:* `{utr}`\n• *Settlement Mode:* {settlementMode}\n• *Status:* Realised & Dispatched (T+0)\n\nThank you for banking with SURAT PEOPLES CO OP BANK.",
     actions: ["Download Receipt", "Mini Statement", "Menu"],
   },
   CHEQUE_RETURNED: {
@@ -64,6 +87,20 @@ const TEMPLATES = {
     sms: "Positive Pay confirmed: Cheque #{chequeNumber} for Rs.{amount} in favour of {payeeName} is registered. Reference: {ppsRef}. - SURAT PEOPLES CO OP BANK",
     whatsapp: "🛡️ *SURAT PEOPLES CO OP BANK*\n*Positive Pay System (PPS) Registration Confirmed*\n\nYour cheque has been pre-authorized for high-value clearance:\n\n• *Cheque No:* #{chequeNumber}\n• *Amount:* ₹{amount}\n• *Payee:* {payeeName}\n• *Registration Ref:* `{ppsRef}`\n• *Status:* ACTIVE / VERIFIED",
     actions: ["PPS Status", "View Registered List", "Menu"],
+  },
+  HOURLY_BATCH_SETTLED: {
+    id: "DLT-SNB-BATCH-CLR-06",
+    name: "RBI Continuous Clearing Realization Alert",
+    sms: "RBI Continuous Clearing: Hourly Batch #{batchId} settled. Cheque #{chequeNumber} (Rs.{amount}) funds credited. Available balance: Rs.{balance}. - SURAT PEOPLES CO OP BANK",
+    whatsapp: "⏱️ *SURAT PEOPLES CO OP BANK*\n*Hourly T+0 Continuous Clearing Realisation*\n\nDear Customer,\nYour cheque has been realised in RBI Continuous Clearing Session:\n\n• *Batch Ref:* `{batchId}`\n• *Cheque:* #{chequeNumber} (₹{amount})\n• *Realisation Time:* {settledAt}\n• *Credit Status:* INSTANT BENEFICIARY CREDIT (T+0)\n• *Statutory SLA:* 60-Minute Realisation Compliant\n\nThank you for banking with SURAT PEOPLES CO OP BANK.",
+    actions: ["Mini Statement", "Balance", "Menu"],
+  },
+  MULE_ALERT: {
+    id: "DLT-SNB-SEC-MULE-07",
+    name: "MuleHunter AI Security Notification",
+    sms: "SECURITY ALERT: High-risk anomaly flagged on Cheque #{chequeNumber}. Beneficiary account placed on 24h MuleHold. Call 1800-233-1234. - SURAT PEOPLES CO OP BANK",
+    whatsapp: "🛡️ *SURAT PEOPLES CO OP BANK — SECURITY RADAR*\n*Automated MuleHunter AI Anomaly Interception*\n\n⚠️ An anomalous transaction pattern was intercepted on Cheque *#{chequeNumber}* (₹{amount}).\n\n• *Risk Reason:* {riskDetails}\n• *Safety Action:* 24h MuleHold Protected\n• *Fraud Score:* {fraudScore}/100\n\n_If you did not authorize this transaction, reply *FREEZE* immediately or contact 1800-233-1234._",
+    actions: ["Verify Transaction", "Freeze Account", "Contact Branch"],
   },
   HIGH_VALUE_OTP: {
     id: "DLT-SNB-OTP-05",
@@ -246,10 +283,16 @@ async function sendWhatsApp({ recipient, templateKey, params = {}, customBody = 
     }
   }
 
-  // Generate 100% Free Direct Real WhatsApp Link (wa.me) & Web WhatsApp URL
-  const directWhatsAppUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(body)}`;
-  const waMeUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(body)}`;
-  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(waMeUrl)}`;
+  // Generate 100% Free Direct Real WhatsApp Link (wa.me), Universal Share Link, & Web WhatsApp URL
+  const universalWaUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(body)}`;
+  const hasValidPhone = cleanPhone && cleanPhone.length >= 10;
+  const directWhatsAppUrl = hasValidPhone
+    ? `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(body)}`
+    : universalWaUrl;
+  const waMeUrl = hasValidPhone
+    ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(body)}`
+    : universalWaUrl;
+  const qrUrl = universalWaUrl;
 
   const logEntry = {
     id: msgId,
@@ -262,6 +305,7 @@ async function sendWhatsApp({ recipient, templateKey, params = {}, customBody = 
     cost: "₹0.00 (Free Tier)",
     actions: template ? template.actions : ["Menu", "Support"],
     directWhatsAppUrl,
+    universalWaUrl,
     waMeUrl,
     qrUrl,
     sentAt: new Date().toISOString(),
@@ -575,6 +619,177 @@ function updateGatewayConfig(newConfig) {
   return getGatewayConfig();
 }
 
+function getActiveCustomer() {
+  return activeCustomer;
+}
+
+async function registerActiveCustomer({ phone, name = "Rajesh Varma", accountNumber = "102030401001", sendWelcome = true }) {
+  if (!phone) throw new Error("Phone number is required");
+  const cleaned = phone.trim();
+  activeCustomer = {
+    phone: cleaned,
+    name: name || "Rajesh Varma",
+    accountNumber: accountNumber || "102030401001",
+    isAutomated: true,
+    registeredAt: new Date().toISOString(),
+  };
+
+  broadcastEvent("WHATSAPP_CUSTOMER_REGISTERED", activeCustomer);
+
+  let welcomeMessage = null;
+  if (sendWelcome) {
+    welcomeMessage = await sendWhatsApp({
+      recipient: activeCustomer.phone,
+      customerName: activeCustomer.name,
+      templateKey: "WELCOME_ACTIVATION",
+      params: {
+        recipient: activeCustomer.phone,
+        customerName: activeCustomer.name,
+      },
+    });
+  }
+
+  return { activeCustomer, welcomeMessage };
+}
+
+async function notifyClearingEvent(eventType, eventData = {}) {
+  if (!activeCustomer || !activeCustomer.isAutomated) return null;
+
+  const phone = eventData.recipient || activeCustomer.phone;
+  const customerName = eventData.customerName || activeCustomer.name || "Customer";
+
+  let templateKey = null;
+  const params = {
+    chequeNumber: eventData.chequeNumber || "000101",
+    amount: eventData.amount ? Number(eventData.amount).toLocaleString("en-IN") : "4,50,000",
+    accountNumber: eventData.accountNumber || activeCustomer.accountNumber || "102030401001",
+    payeeName: eventData.payeeName || "Larsen & Toubro Ltd",
+    draweeBank: eventData.draweeBank || "SURAT PEOPLES CO OP BANK",
+    presentingBank: eventData.presentingBank || "SURAT PEOPLES CO OP BANK",
+    utr: eventData.utr || eventData.ekuberUtr || `EKUBER-${Date.now().toString().slice(-8)}`,
+    settlementMode: eventData.settlementMode || "CONTINUOUS_T0",
+    balance: eventData.balance || "24,85,420.00",
+    returnReason: eventData.returnReason || "Funds Insufficient",
+    memoRef: eventData.memoRef || `RM-20261016-${eventData.chequeNumber || "000101"}`,
+    ppsRef: eventData.ppsRef || `PPS-${Date.now().toString().slice(-6)}`,
+    batchId: eventData.batchId || "BATCH-H14",
+    settledAt: new Date().toLocaleTimeString("en-IN"),
+    riskDetails: eventData.riskDetails || "High velocity cross-grid presentation",
+    fraudScore: eventData.fraudScore || "87",
+    ...eventData,
+  };
+
+  switch (eventType) {
+    case "PRESENTED":
+    case "CHEQUE_PRESENTED":
+      templateKey = "CHEQUE_PRESENTED";
+      break;
+    case "VERIFIED":
+    case "CHEQUE_VERIFIED":
+      templateKey = "CHEQUE_VERIFIED";
+      break;
+    case "CLEARED":
+    case "CHEQUE_CLEARED":
+      templateKey = "CHEQUE_CLEARED";
+      break;
+    case "RETURNED":
+    case "CHEQUE_RETURNED":
+      templateKey = "CHEQUE_RETURNED";
+      break;
+    case "PPS":
+    case "PPS_CONFIRMATION":
+      templateKey = "PPS_CONFIRMATION";
+      break;
+    case "HOURLY_BATCH":
+    case "HOURLY_BATCH_SETTLED":
+      templateKey = "HOURLY_BATCH_SETTLED";
+      break;
+    case "MULE_ALERT":
+      templateKey = "MULE_ALERT";
+      break;
+    default:
+      templateKey = "CHEQUE_PRESENTED";
+  }
+
+  const result = await sendWhatsApp({
+    recipient: phone,
+    customerName,
+    templateKey,
+    params,
+  });
+
+  return result;
+}
+
+/**
+ * Instant Zero-Click Real-Time Clearing Flow Simulation
+ * Demonstrates live automated banking notifications step-by-step
+ */
+async function triggerRealtimeDemoFlow(targetPhone = null) {
+  const phone = targetPhone || activeCustomer.phone;
+  const chqNum = `000${Math.floor(Math.random() * 800 + 100)}`;
+  const amount = (Math.floor(Math.random() * 20 + 2) * 50000).toLocaleString("en-IN");
+
+  // Step 1: Inward Cheque Presentation Alert
+  const msg1 = await sendWhatsApp({
+    recipient: phone,
+    customerName: activeCustomer.name,
+    templateKey: "CHEQUE_PRESENTED",
+    params: {
+      chequeNumber: chqNum,
+      amount,
+      accountNumber: activeCustomer.accountNumber,
+      payeeName: "Tata Consultancy Services Ltd",
+      draweeBank: "SURAT PEOPLES CO OP BANK",
+    },
+  });
+
+  // Step 2: Maker Verification (asynchronous with 1.5s delay)
+  setTimeout(async () => {
+    try {
+      await sendWhatsApp({
+        recipient: phone,
+        customerName: activeCustomer.name,
+        templateKey: "CHEQUE_VERIFIED",
+        params: {
+          chequeNumber: chqNum,
+          amount,
+          accountNumber: activeCustomer.accountNumber,
+          payeeName: "Tata Consultancy Services Ltd",
+        },
+      });
+    } catch {}
+  }, 1600);
+
+  // Step 3: e-Kuber Continuous Clearance & Realization (3.2s delay)
+  setTimeout(async () => {
+    try {
+      await sendWhatsApp({
+        recipient: phone,
+        customerName: activeCustomer.name,
+        templateKey: "CHEQUE_CLEARED",
+        params: {
+          chequeNumber: chqNum,
+          amount,
+          accountNumber: activeCustomer.accountNumber,
+          payeeName: "Tata Consultancy Services Ltd",
+          utr: `EKUBER-${Date.now().toString().slice(-8)}`,
+          settlementMode: "RBI CONTINUOUS T+0",
+          balance: "28,60,420.00",
+        },
+      });
+    } catch {}
+  }, 3400);
+
+  return {
+    status: "REALTIME_FLOW_TRIGGERED",
+    chequeNumber: chqNum,
+    amount,
+    recipient: phone,
+    initialMessage: msg1,
+  };
+}
+
 module.exports = {
   TEMPLATES,
   sendSms,
@@ -585,4 +800,8 @@ module.exports = {
   getMessageLogs,
   getGatewayConfig,
   updateGatewayConfig,
+  getActiveCustomer,
+  registerActiveCustomer,
+  notifyClearingEvent,
+  triggerRealtimeDemoFlow,
 };

@@ -10,6 +10,8 @@ const {
   getSignatureComparison,
   getChequeForensics,
   bulkIngestCheques,
+  getDemoPresets,
+  verifyPositivePayInstant,
 } = require("../controllers/cheque.controller");
 const { authenticate, authorize } = require("../middleware/auth.middleware");
 const upload = require("../middleware/upload.middleware");
@@ -20,6 +22,8 @@ const router = express.Router();
 
 router.use(authenticate);
 
+router.get("/demo-presets", getDemoPresets);
+router.post("/pps-verify", verifyPositivePayInstant);
 router.post("/scan-ocr", upload.single("chequeImage"), scanOcrCheque);
 router.post("/positive-pay", registerPositivePay);
 router.get("/positive-pay", listPositivePay);

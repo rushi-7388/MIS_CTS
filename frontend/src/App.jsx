@@ -4,6 +4,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import { useAuth } from "./context/AuthContext";
 import LiveSettlementTicker from "./components/LiveSettlementTicker";
 import LiveNotificationToast from "./components/LiveNotificationToast";
+import RealtimeWhatsAppFloatingWidget from "./components/RealtimeWhatsAppFloatingWidget";
 
 // Lazy-loaded page components for fast initial bundle delivery and route-level code splitting
 const Login = lazy(() => import("./pages/Login"));
@@ -134,7 +135,12 @@ export default function App() {
           </Routes>
         </Suspense>
       </div>
-      {user && <LiveNotificationToast />}
+      {user && (
+        <>
+          <LiveNotificationToast />
+          <RealtimeWhatsAppFloatingWidget />
+        </>
+      )}
     </div>
   );
 }

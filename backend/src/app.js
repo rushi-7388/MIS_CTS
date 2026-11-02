@@ -35,6 +35,10 @@ const acousticRoutes = require("./routes/acoustic.routes");
 const liquiditySwarmRoutes = require("./routes/liquidity-swarm.routes");
 const sdkRoutes = require("./routes/sdk.routes");
 const sovereignDpiRoutes = require("./routes/sovereign-dpi.routes");
+const marketplaceRoutes = require("./routes/marketplace.routes");
+const agoraRoutes = require("./routes/agora.routes");
+const hardwareEdgeRoutes = require("./routes/hardware-edge.routes");
+const treasuryRoutes = require("./routes/treasury.routes");
 
 const app = express();
 
@@ -101,6 +105,10 @@ app.use("/api/acoustic", acousticRoutes);
 app.use("/api/liquidity-swarm", liquiditySwarmRoutes);
 app.use("/api/sdk", sdkRoutes);
 app.use("/api/dpi", sovereignDpiRoutes);
+app.use("/api/marketplace", marketplaceRoutes);
+app.use("/api/agora", agoraRoutes);
+app.use("/api/hardware-edge", hardwareEdgeRoutes);
+app.use("/api/treasury", treasuryRoutes);
 
 app.use((req, res) => res.status(404).json({ error: "Route not found" }));
 

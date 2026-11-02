@@ -11,6 +11,11 @@ router.post("/whatsapp/webhook", messagingCtrl.handleMetaWebhook);
 router.post("/whatsapp/simulate-incoming", messagingCtrl.simulateWhatsAppIncoming);
 router.get("/whatsapp/click-to-chat", messagingCtrl.getClickToChat);
 
+// Real-Time Active WhatsApp Registered Customer & Zero-Click Automation
+router.get("/whatsapp/active-number", messagingCtrl.getActiveCustomer);
+router.post("/whatsapp/register-active-number", messagingCtrl.registerActiveCustomer);
+router.post("/whatsapp/trigger-demo", messagingCtrl.triggerRealtimeDemo);
+
 // Authenticated or operational endpoints
 router.get("/logs", messagingCtrl.getLogs);
 router.get("/templates", messagingCtrl.getTemplates);

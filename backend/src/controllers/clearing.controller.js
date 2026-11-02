@@ -218,43 +218,21 @@ async function transitionCheque(req, res) {
     });
   }
 
-  // Automated Multi-Channel Customer Notification (WhatsApp & SMS) - 100% Free Virtual / Sandbox Mode
+  // Automated Multi-Channel Customer Notification (WhatsApp & SMS) - Zero-Click Real-Time Integration
   try {
-    const tmplKey = effectiveTargetStatus === "CLEARED" ? "CHEQUE_CLEARED" : effectiveTargetStatus === "RETURNED" ? "CHEQUE_RETURNED" : null;
-    if (tmplKey) {
-      messagingService.sendWhatsApp({
-        recipient: "+91 98251 44012",
-        customerName: updated.payeeName,
-        templateKey: tmplKey,
-        params: {
-          chequeNumber: updated.chequeNumber,
-          amount: Number(updated.amount).toLocaleString("en-IN"),
-          accountNumber: updated.accountNumber,
-          payeeName: updated.payeeName,
-          draweeBank: updated.draweeBank?.name || "SURAT PEOPLES CO OP BANK",
-          presentingBank: updated.presentingBank?.name || "SURAT PEOPLES CO OP BANK",
-          utr: updated.ekuberUtr || "EKUBER-T0-REALTIME",
-          settlementMode: updated.settlementMode || "CONTINUOUS_T0",
-          balance: "24,85,420.00",
-          returnReason: updated.returnReason || "Funds Insufficient",
-          memoRef: `RM-20261016-${updated.chequeNumber}`,
-        },
-      }).catch(() => {});
-
-      messagingService.sendSms({
-        recipient: "+91 98251 44012",
-        customerName: updated.payeeName,
-        templateKey: tmplKey,
-        params: {
-          chequeNumber: updated.chequeNumber,
-          amount: Number(updated.amount).toLocaleString("en-IN"),
-          accountNumber: updated.accountNumber,
-          payeeName: updated.payeeName,
-          utr: updated.ekuberUtr || "EKUBER-T0-REALTIME",
-          balance: "24,85,420.00",
-          returnReason: updated.returnReason || "Funds Insufficient",
-          memoRef: `RM-20261016-${updated.chequeNumber}`,
-        },
+    if (["VERIFIED", "CLEARED", "RETURNED"].includes(effectiveTargetStatus)) {
+      messagingService.notifyClearingEvent(effectiveTargetStatus, {
+        chequeNumber: updated.chequeNumber,
+        amount: updated.amount,
+        accountNumber: updated.accountNumber,
+        payeeName: updated.payeeName,
+        draweeBank: updated.draweeBank?.name || "SURAT PEOPLES CO OP BANK",
+        presentingBank: updated.presentingBank?.name || "SURAT PEOPLES CO OP BANK",
+        utr: updated.ekuberUtr || ekuberReceipt?.utr || "EKUBER-T0-REALTIME",
+        settlementMode: updated.settlementMode || "CONTINUOUS_T0",
+        balance: "24,85,420.00",
+        returnReason: finalReturnReason || updated.returnReason || "Funds Insufficient",
+        memoRef: `RM-20261016-${updated.chequeNumber}`,
       }).catch(() => {});
     }
   } catch (notifyErr) {

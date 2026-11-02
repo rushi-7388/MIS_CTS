@@ -13,7 +13,8 @@
     "test": "node scripts/verify-new-features.js",
     "test:sovereign": "node scripts/verify-sovereign-pillars.js",
     "test:dpi": "node scripts/verify-dpi-sovereign-stack.js",
-    "test:all": "node scripts/verify-new-features.js && node scripts/verify-sovereign-pillars.js && node scripts/verify-dpi-sovereign-stack.js"
+    "test:billion": "node scripts/verify-billion-dollar-infrastructure.js",
+    "test:all": "node scripts/verify-new-features.js && node scripts/verify-sovereign-pillars.js && node scripts/verify-dpi-sovereign-stack.js && node scripts/verify-billion-dollar-infrastructure.js"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",

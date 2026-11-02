@@ -48,6 +48,23 @@ export function playNotificationChime(type = "presentation") {
         osc.start(ctx.currentTime + i * 0.08);
         osc.stop(ctx.currentTime + i * 0.08 + 0.35);
       });
+    } else if (type === "whatsapp" || type === "message") {
+      // Signature percussive WhatsApp bubble "pop-ping" (high crisp harmonic: 1318Hz -> 1760Hz)
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(1318.51, ctx.currentTime); // E6
+      osc.frequency.exponentialRampToValueAtTime(1760.0, ctx.currentTime + 0.06); // A6
+
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.28);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start();
+      osc.stop(ctx.currentTime + 0.28);
     }
   } catch (err) {
     // AudioContext autoplay might be blocked before first user gesture, fail silently

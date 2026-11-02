@@ -62,6 +62,10 @@ export function useClearingEvents(onEvent) {
         eventSource.addEventListener("BHASHINI_VOICE_AUTHENTICATED", (e) => handleIncoming("BHASHINI_VOICE_AUTHENTICATED", e));
         eventSource.addEventListener("SRVA_VOSTRO_SETTLED", (e) => handleIncoming("SRVA_VOSTRO_SETTLED", e, "cleared"));
 
+        // Instant Real-Time WhatsApp Banking Events
+        eventSource.addEventListener("WHATSAPP_SENT", (e) => handleIncoming("WHATSAPP_SENT", e, "whatsapp"));
+        eventSource.addEventListener("WHATSAPP_CUSTOMER_REGISTERED", (e) => handleIncoming("WHATSAPP_CUSTOMER_REGISTERED", e, "whatsapp"));
+
         eventSource.onmessage = (e) => {
           handleIncoming("GENERIC_EVENT", e);
         };

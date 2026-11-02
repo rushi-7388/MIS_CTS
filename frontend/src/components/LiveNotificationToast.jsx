@@ -33,6 +33,10 @@ export default function LiveNotificationToast() {
       title = "Net Settlement Executed";
       message = event.data?.message || "Continuous Clearing Batch Settled via RBI e-Kuber";
       type = "success";
+    } else if (event.type === "WHATSAPP_SENT") {
+      title = "💬 Instant WhatsApp Banking Alert";
+      message = `To ${event.data?.recipient || "Customer"}: ${(event.data?.body || "").replace(/[*_`]/g, "").slice(0, 80)}...`;
+      type = "whatsapp";
     }
 
     setNotification({ title, message, type, time: new Date().toLocaleTimeString() });
@@ -50,6 +54,7 @@ export default function LiveNotificationToast() {
     danger: "bg-rose-950/95 border-rose-700 text-white",
     warning: "bg-amber-950/95 border-amber-700 text-amber-100",
     info: "bg-slate-900/95 border-slate-700 text-white",
+    whatsapp: "bg-[#0b291e] border-emerald-500/80 text-emerald-100 shadow-xl shadow-emerald-950/50",
   };
 
   return (

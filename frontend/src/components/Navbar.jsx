@@ -29,6 +29,11 @@ import NeslSection138Modal from "./NeslSection138Modal";
 import UliAccountAggregatorModal from "./UliAccountAggregatorModal";
 import BhashiniVoiceBankingModal from "./BhashiniVoiceBankingModal";
 import SrvaVostroSettlementModal from "./SrvaVostroSettlementModal";
+import BankPitchShowcaseModal from "./BankPitchShowcaseModal";
+import LiquidityMarketplaceModal from "./LiquidityMarketplaceModal";
+import AgoraMbridgeCorridorModal from "./AgoraMbridgeCorridorModal";
+import HardwareEdgeTerminalModal from "./HardwareEdgeTerminalModal";
+import CorporateTreasuryTerminalModal from "./CorporateTreasuryTerminalModal";
 
 const DEMO_ROLES = [
   {
@@ -119,6 +124,11 @@ export default function Navbar() {
   const [showUliModal, setShowUliModal] = useState(false);
   const [showBhashiniModal, setShowBhashiniModal] = useState(false);
   const [showSrvaModal, setShowSrvaModal] = useState(false);
+  const [showPitchModal, setShowPitchModal] = useState(false);
+  const [showMarketplaceModal, setShowMarketplaceModal] = useState(false);
+  const [showAgoraModal, setShowAgoraModal] = useState(false);
+  const [showHardwareEdgeModal, setShowHardwareEdgeModal] = useState(false);
+  const [showTreasuryModal, setShowTreasuryModal] = useState(false);
 
   // UI States
   const [showServicesMenu, setShowServicesMenu] = useState(false);
@@ -355,8 +365,43 @@ export default function Navbar() {
       : []),
   ];
 
+  const billionDollarItems = [
+    {
+      id: "marketplace",
+      icon: "📈",
+      name: "Interbank Liquidity & Receivables Marketplace",
+      desc: "Monetize uncleared floating instruments into instant liquidity",
+      tag: "Secondary Rail",
+      action: () => setShowMarketplaceModal(true),
+    },
+    {
+      id: "agora",
+      icon: "🌐",
+      name: "BIS Project Agora & mBridge Multi-CBDC",
+      desc: "Cross-border DvP atomic settlement bypassing SWIFT",
+      tag: "Multi-CBDC",
+      action: () => setShowAgoraModal(true),
+    },
+    {
+      id: "hardware-edge",
+      icon: "🛰️",
+      name: "Hardware Edge Scanner & LEO Satellite Mesh",
+      desc: "Canon 300 DPI transport + TPM 2.0 + ISRO NavIC satcom",
+      tag: "Beyond Software",
+      action: () => setShowHardwareEdgeModal(true),
+    },
+    {
+      id: "treasury",
+      icon: "📊",
+      name: "Institutional CFO & Treasury Terminal",
+      desc: "Bloomberg-grade float arbitrage, Monte Carlo & GSTN escrow",
+      tag: "CFO Terminal",
+      action: () => setShowTreasuryModal(true),
+    },
+  ];
+
   // Filter items if user typed in search query
-  const allServices = [...sovereignItems, ...dpiItems, ...adapterItems];
+  const allServices = [...billionDollarItems, ...sovereignItems, ...dpiItems, ...adapterItems];
   const filteredServices = searchQuery.trim()
     ? allServices.filter(
         (item) =>
@@ -367,7 +412,9 @@ export default function Navbar() {
     : null;
 
   const currentTabItems =
-    activeTab === "sovereign"
+    activeTab === "billion"
+      ? billionDollarItems
+      : activeTab === "sovereign"
       ? sovereignItems
       : activeTab === "dpi"
       ? dpiItems
@@ -426,6 +473,36 @@ export default function Navbar() {
             >
               <span>📊 Reports</span>
             </Link>
+
+            {/* Direct Link: Bank Pitch Showcase Mode */}
+            <button
+              type="button"
+              onClick={() => setShowPitchModal(true)}
+              className="px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 font-bold text-xs bg-gradient-to-r from-amber-500/20 via-amber-400/20 to-amber-600/20 text-amber-300 border border-amber-500/50 hover:bg-amber-500/30 cursor-pointer shadow-xs shadow-amber-950/40"
+              title="Launch Bank Executive Pitch & Evaluation Showcase"
+            >
+              <span>🏛️ Pitch Mode</span>
+            </button>
+
+            {/* Direct Link: Liquidity Marketplace */}
+            <button
+              type="button"
+              onClick={() => setShowMarketplaceModal(true)}
+              className="px-2.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 font-bold text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 cursor-pointer"
+              title="Interbank Liquidity & Receivables Secondary Marketplace"
+            >
+              <span>📈 Liquidity Mkt</span>
+            </button>
+
+            {/* Direct Link: CFO Treasury Terminal */}
+            <button
+              type="button"
+              onClick={() => setShowTreasuryModal(true)}
+              className="px-2.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 font-bold text-xs bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-500/30 cursor-pointer"
+              title="Institutional CFO & Corporate Treasury Terminal"
+            >
+              <span>📊 CFO Treasury</span>
+            </button>
 
             {/* Unified Services Dropdown Menu */}
             <div className="relative" ref={servicesMenuRef}>
@@ -512,33 +589,44 @@ export default function Navbar() {
                   ) : (
                     <>
                       {/* Clean Segmented Tabs */}
-                      <div className="grid grid-cols-3 gap-1 p-2 bg-slate-950/40 border-b border-slate-800 text-xs">
+                      <div className="grid grid-cols-4 gap-1 p-2 bg-slate-950/40 border-b border-slate-800 text-[11px]">
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab("billion")}
+                          className={`py-1.5 px-1.5 rounded-lg font-semibold transition cursor-pointer text-center truncate ${
+                            activeTab === "billion"
+                              ? "bg-slate-800 text-amber-300 border border-amber-500/40 shadow-xs"
+                              : "text-slate-400 hover:text-slate-200"
+                          }`}
+                        >
+                          💎 Billion$
+                        </button>
                         <button
                           type="button"
                           onClick={() => setActiveTab("sovereign")}
-                          className={`py-1.5 px-2 rounded-lg font-semibold transition cursor-pointer text-center truncate ${
+                          className={`py-1.5 px-1.5 rounded-lg font-semibold transition cursor-pointer text-center truncate ${
                             activeTab === "sovereign"
                               ? "bg-slate-800 text-cyan-300 border border-slate-700 shadow-xs"
                               : "text-slate-400 hover:text-slate-200"
                           }`}
                         >
-                          ⚡ Sovereign 6
+                          ⚡ Sovereign
                         </button>
                         <button
                           type="button"
                           onClick={() => setActiveTab("dpi")}
-                          className={`py-1.5 px-2 rounded-lg font-semibold transition cursor-pointer text-center truncate ${
+                          className={`py-1.5 px-1.5 rounded-lg font-semibold transition cursor-pointer text-center truncate ${
                             activeTab === "dpi"
                               ? "bg-slate-800 text-cyan-300 border border-slate-700 shadow-xs"
                               : "text-slate-400 hover:text-slate-200"
                           }`}
                         >
-                          🇮🇳 RBI DPI (2025)
+                          🇮🇳 DPI (2025)
                         </button>
                         <button
                           type="button"
                           onClick={() => setActiveTab("adapters")}
-                          className={`py-1.5 px-2 rounded-lg font-semibold transition cursor-pointer text-center truncate ${
+                          className={`py-1.5 px-1.5 rounded-lg font-semibold transition cursor-pointer text-center truncate ${
                             activeTab === "adapters"
                               ? "bg-slate-800 text-cyan-300 border border-slate-700 shadow-xs"
                               : "text-slate-400 hover:text-slate-200"
@@ -588,6 +676,17 @@ export default function Navbar() {
 
           {/* 3. Right: Live Pulse, Role Switcher & User Profile */}
           <div className="flex items-center gap-2.5 text-xs">
+            {/* Quick WhatsApp Banking Launcher */}
+            <button
+              type="button"
+              onClick={() => setShowWhatsAppModal(true)}
+              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/70 hover:bg-emerald-900 border border-emerald-500/50 text-emerald-300 font-semibold text-[11px] transition-all cursor-pointer shadow-xs hover:scale-105"
+              title="Open WhatsApp Banking Suite & DLT Logs"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span>💬 WhatsApp Banking</span>
+            </button>
+
             {/* Live Indicator */}
             <div className="hidden lg:flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-800/80 border border-slate-700 text-slate-300 font-mono text-[11px]">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -739,6 +838,11 @@ export default function Navbar() {
       {showUliModal && <UliAccountAggregatorModal onClose={() => setShowUliModal(false)} />}
       {showBhashiniModal && <BhashiniVoiceBankingModal onClose={() => setShowBhashiniModal(false)} />}
       {showSrvaModal && <SrvaVostroSettlementModal onClose={() => setShowSrvaModal(false)} />}
+      <BankPitchShowcaseModal isOpen={showPitchModal} onClose={() => setShowPitchModal(false)} />
+      <LiquidityMarketplaceModal isOpen={showMarketplaceModal} onClose={() => setShowMarketplaceModal(false)} />
+      <AgoraMbridgeCorridorModal isOpen={showAgoraModal} onClose={() => setShowAgoraModal(false)} />
+      <HardwareEdgeTerminalModal isOpen={showHardwareEdgeModal} onClose={() => setShowHardwareEdgeModal(false)} />
+      <CorporateTreasuryTerminalModal isOpen={showTreasuryModal} onClose={() => setShowTreasuryModal(false)} />
     </>
   );
 }

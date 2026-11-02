@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
+import QRCode from "qrcode";
 import client from "../api/client";
 import logo from "../assets/logo.jpg";
+import WhatsAppQrModal from "./WhatsAppQrModal";
+import { playNotificationChime } from "../utils/sound.util";
 
 export default function WhatsAppBankingModal({ onClose, defaultCheque = null }) {
   const [activeTab, setActiveTab] = useState("simulator"); // simulator, outbox, sender, templates, config
@@ -9,6 +12,7 @@ export default function WhatsAppBankingModal({ onClose, defaultCheque = null }) 
   const [templates, setTemplates] = useState({});
   const [config, setConfig] = useState(null);
   const [notification, setNotification] = useState("");
+  const [showQrModal, setShowQrModal] = useState(false);
 
   // WhatsApp Simulator Chat State
   const [chatMessages, setChatMessages] = useState([
@@ -45,6 +49,12 @@ export default function WhatsAppBankingModal({ onClose, defaultCheque = null }) 
   const [lastDispatched, setLastDispatched] = useState(null);
   const [callMeBotKey, setCallMeBotKey] = useState("");
   const [fast2SmsKey, setFast2SmsKey] = useState("");
+
+  // Live QR Code & Universal Delivery States for Dispatch Tab
+  const [dispatchQrMode, setDispatchQrMode] = useState("universal"); // "universal" | "direct"
+  const [dispatchQrDataUrl, setDispatchQrDataUrl] = useState("");
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedText, setCopiedText] = useState(false);
 
   // Filter logs
   const [logFilter, setLogFilter] = useState("ALL");
@@ -93,6 +103,66 @@ export default function WhatsAppBankingModal({ onClose, defaultCheque = null }) 
     }
   }
 
+  // Live computed message & live offline QR generation for Dispatch tab
+  function getComputedAlertMessage() {
+    const tmpl = templates[selectedTemplate];
+    const rawTemplate = tmpl?.whatsapp || tmpl?.sms || (
+      selectedTemplate === "CHEQUE_PRESENTED" ? "🏦 *SURAT PEOPLES CO OP BANK*\n*Inward Cheque Presentation Alert*\n\nDear Customer,\nCheque *#{chequeNumber}* for *₹{amount}* has been received in CTS clearing.\n\n📋 *Details:*\n• *Account:* {accountNumber}\n• *Payee:* {payeeName}\n• *Drawee Bank:* {draweeBank}\n• *Clearing Cycle:* Standard T+0\n\n_If you did not issue this instrument, reply *STOP {chequeNumber}* immediately._" :
+      selectedTemplate === "CHEQUE_VERIFIED" ? "🔍 *SURAT PEOPLES CO OP BANK*\n*Cheque Verification In Progress*\n\nDear Customer,\nCheque *#{chequeNumber}* for *₹{amount}* has successfully passed Drawee Maker & AI Biometric Signature inspection.\n\n📋 *Clearing Tracker:*\n• *Payee:* {payeeName}\n• *Account:* {accountNumber}\n• *Current Stage:* 4-Eyes Senior Checker Sign-off\n• *Expected Settlement:* Continuous T+0 Cycle\n\n_We will notify you the moment e-Kuber funds settlement completes._" :
+      selectedTemplate === "CHEQUE_CLEARED" ? "✅ *SURAT PEOPLES CO OP BANK*\n*Cheque Clearance Confirmation*\n\nDear Customer,\nYour Cheque *#{chequeNumber}* for *₹{amount}* has been successfully *CLEARED*.\n\n🧾 *Transaction Details:*\n• *Account Debited:* {accountNumber}\n• *Beneficiary:* {payeeName}\n• *e-Kuber UTR:* `{utr}`\n• *Settlement Mode:* RBI CONTINUOUS T+0\n• *Status:* Realised & Dispatched (T+0)\n\nThank you for banking with SURAT PEOPLES CO OP BANK." :
+      selectedTemplate === "CHEQUE_RETURNED" ? "⚠️ *SURAT PEOPLES CO OP BANK*\n*Statutory Cheque Dishonour Alert (Rule 16)*\n\nDear Customer,\nCheque *#{chequeNumber}* for *₹{amount}* has been *RETURNED UNPAID*.\n\n❌ *Dishonour Details:*\n• *Return Reason Code:* {returnReason}\n• *Statutory Memo Ref:* `{memoRef}`\n• *Account:* {accountNumber}\n• *Presenting Bank:* {presentingBank}\n\n_Under Negotiable Instruments Act Section 138, a formal return memo has been generated. Please contact your branch immediately._" :
+      selectedTemplate === "PPS_CONFIRMATION" ? "🛡️ *SURAT PEOPLES CO OP BANK*\n*Positive Pay System (PPS) Registration Confirmed*\n\nYour cheque has been pre-authorized for high-value clearance:\n\n• *Cheque No:* #{chequeNumber}\n• *Amount:* ₹{amount}\n• *Payee:* {payeeName}\n• *Registration Ref:* `{ppsRef}`\n• *Status:* ACTIVE / VERIFIED" :
+      selectedTemplate === "HOURLY_BATCH_SETTLED" ? "⏱️ *SURAT PEOPLES CO OP BANK*\n*Hourly T+0 Continuous Clearing Realisation*\n\nDear Customer,\nYour cheque has been realised in RBI Continuous Clearing Session:\n\n• *Batch Ref:* `{batchId}`\n• *Cheque:* #{chequeNumber} (₹{amount})\n• *Realisation Time:* {settledAt}\n• *Credit Status:* INSTANT BENEFICIARY CREDIT (T+0)\n• *Statutory SLA:* 60-Minute Realisation Compliant" :
+      selectedTemplate === "MULE_ALERT" ? "🛡️ *SURAT PEOPLES CO OP BANK — SECURITY RADAR*\n*Automated MuleHunter AI Anomaly Interception*\n\n⚠️ An anomalous transaction pattern was intercepted on Cheque *#{chequeNumber}* (₹{amount}).\n\n• *Risk Reason:* Velocity spike > 200% average volume\n• *Safety Action:* 24h MuleHold Protected\n• *Fraud Score:* 12/100" :
+      selectedTemplate === "HIGH_VALUE_OTP" ? "🔐 *SURAT PEOPLES CO OP BANK*\n*High-Value Verification OTP*\n\nYour one-time authorization code is: *{otp}*\n\n• *Action:* Dual-Control Checker Release\n• *Instrument:* Cheque #{chequeNumber}\n• *Amount:* ₹{amount}\n• *Valid for:* 5 minutes" :
+      "🏦 *SURAT PEOPLES CO OP BANK*\n*CTS Clearing Real-Time Alert*\n\nCheque *#{chequeNumber}* for *₹{amount}* processed for {payeeName}."
+    );
+
+    let text = rawTemplate;
+    const vars = {
+      ...dispatchParams,
+      customerName,
+      recipient: recipientPhone,
+      ppsRef: "PPS-" + (dispatchParams.chequeNumber || "000101"),
+      settlementMode: "RBI CONTINUOUS T+0",
+      batchId: "BATCH-2026-HR-" + new Date().getHours(),
+      settledAt: new Date().toLocaleTimeString("en-IN"),
+      riskDetails: "Velocity spike > 200% average volume",
+      fraudScore: "12",
+    };
+    for (const [key, val] of Object.entries(vars)) {
+      text = text.replace(new RegExp(`{${key}}`, "g"), val || "N/A");
+    }
+    return text;
+  }
+
+  const computedAlertMessage = getComputedAlertMessage();
+  const cleanPhone = recipientPhone.replace(/[^0-9]/g, "");
+  const liveTargetUrl = dispatchQrMode === "direct" && cleanPhone && cleanPhone.length >= 10
+    ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(computedAlertMessage)}`
+    : `https://api.whatsapp.com/send?text=${encodeURIComponent(computedAlertMessage)}`;
+
+  useEffect(() => {
+    if (!liveTargetUrl) return;
+    let isCancelled = false;
+    QRCode.toDataURL(liveTargetUrl, {
+      width: 280,
+      margin: 2,
+      color: {
+        dark: "#064e3b",
+        light: "#ffffff",
+      },
+      errorCorrectionLevel: "M",
+    })
+      .then((url) => {
+        if (!isCancelled) setDispatchQrDataUrl(url);
+      })
+      .catch((err) => console.error("Offline QR generation error:", err));
+    return () => {
+      isCancelled = true;
+    };
+  }, [liveTargetUrl]);
+
   // Handle Send in WhatsApp Simulator
   async function handleSendChatMessage(textToSend) {
     const text = (textToSend || userInput).trim();
@@ -139,6 +209,32 @@ export default function WhatsAppBankingModal({ onClose, defaultCheque = null }) 
     }
   }
 
+  async function handleRecipientPhoneChange(newPhone) {
+    setRecipientPhone(newPhone);
+    try {
+      await client.post("/messaging/whatsapp/register-active-number", {
+        phone: newPhone,
+        name: customerName,
+        sendWelcome: true,
+      });
+      setNotification(`✅ Linked ${newPhone}! Real-time automated WhatsApp banking active.`);
+      loadLogs();
+    } catch (err) {
+      console.warn("Failed to register WhatsApp:", err);
+    }
+  }
+
+  async function handleTriggerDemoFlow() {
+    try {
+      setNotification("🚀 Dispatched real-time clearing lifecycle demo (Presentation ➔ Verification ➔ Clearance)...");
+      await client.post("/messaging/whatsapp/trigger-demo", { phone: recipientPhone });
+      setTimeout(loadLogs, 1500);
+      setTimeout(loadLogs, 3500);
+    } catch (err) {
+      setNotification(`❌ Error triggering demo: ${err.message}`);
+    }
+  }
+
   // Manual Dispatch Action
   async function handleManualDispatch(e) {
     e.preventDefault();
@@ -170,17 +266,37 @@ export default function WhatsAppBankingModal({ onClose, defaultCheque = null }) 
       }
 
       const cleanPhone = recipientPhone.replace(/[^0-9]/g, "");
+      const isDirect = dispatchQrMode === "direct" && cleanPhone && cleanPhone.length >= 10;
+      const finalWaUrl = isDirect
+        ? (waData?.directWhatsAppUrl || `https://wa.me/${cleanPhone}?text=${encodeURIComponent(computedAlertMessage)}`)
+        : (waData?.universalWaUrl || `https://api.whatsapp.com/send?text=${encodeURIComponent(computedAlertMessage)}`);
+
+      let localQrDataUrl = "";
+      try {
+        localQrDataUrl = await QRCode.toDataURL(finalWaUrl, {
+          width: 280,
+          margin: 2,
+          color: { dark: "#064e3b", light: "#ffffff" },
+          errorCorrectionLevel: "M",
+        });
+      } catch {
+        localQrDataUrl = dispatchQrDataUrl;
+      }
+
       setLastDispatched({
+        id: waData?.id || smsData?.id || `MSG-${Date.now().toString().slice(-6)}`,
         phone: recipientPhone,
         cleanPhone,
-        directWhatsAppUrl: waData?.directWhatsAppUrl || `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(templates[selectedTemplate]?.whatsapp ? templates[selectedTemplate].whatsapp.replace(/{chequeNumber}/g, dispatchParams.chequeNumber).replace(/{amount}/g, dispatchParams.amount).replace(/{payeeName}/g, dispatchParams.payeeName) : "Bank Alert")}`,
-        waMeUrl: waData?.waMeUrl || `https://wa.me/${cleanPhone}`,
-        qrUrl: waData?.qrUrl || `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(`https://wa.me/${cleanPhone}`)}`,
-        directSmsUri: smsData?.directSmsUri || `sms:${cleanPhone}?body=Cheque%20Alert`,
-        body: waData?.body || smsData?.body || "Cheque Alert",
+        directWhatsAppUrl: finalWaUrl,
+        universalWaUrl: waData?.universalWaUrl || `https://api.whatsapp.com/send?text=${encodeURIComponent(computedAlertMessage)}`,
+        waMeUrl: finalWaUrl,
+        qrUrl: localQrDataUrl || dispatchQrDataUrl,
+        directSmsUri: smsData?.directSmsUri || `sms:${cleanPhone || "918320827300"}?body=${encodeURIComponent(computedAlertMessage)}`,
+        body: waData?.body || smsData?.body || computedAlertMessage,
       });
 
-      setNotification(`✅ Dispatched to ${recipientPhone}! Click "Open in Real WhatsApp" below to view directly on your phone.`);
+      playNotificationChime("whatsapp");
+      setNotification(`✅ Dispatched to ${recipientPhone}! Scannable QR code & instant delivery links updated.`);
       loadLogs();
     } catch (err) {
       setNotification(`❌ Dispatch error: ${err.response?.data?.error || err.message}`);
@@ -450,6 +566,58 @@ export default function WhatsAppBankingModal({ onClose, defaultCheque = null }) 
 
               {/* Instructions & Features Guide (Right 5 Cols) */}
               <div className="lg:col-span-5 flex flex-col gap-4">
+                {/* Real-time WhatsApp Automation Box */}
+                <div className="p-4 rounded-xl bg-emerald-950/40 border border-emerald-700/60 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      Zero-Click Real-Time Automation
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] bg-emerald-900/80 text-emerald-200 border border-emerald-600/50 font-mono font-semibold">
+                      ACTIVE
+                    </span>
+                  </div>
+
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    Enter any mobile number (or select a dummy) to fully automate real-time banking alerts without needing manual clicks:
+                  </p>
+
+                  <div className="space-y-1.5">
+                    <input
+                      type="text"
+                      value={recipientPhone}
+                      onChange={(e) => handleRecipientPhoneChange(e.target.value)}
+                      className="w-full bg-slate-950 border border-emerald-800 rounded-lg px-3 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                      placeholder="+91 98765 43210"
+                    />
+                    <div className="flex items-center gap-1.5 text-[10px] overflow-x-auto scrollbar-none">
+                      <span className="text-slate-400 font-semibold shrink-0">Dummy:</span>
+                      {["+91 98765 43210", "+91 98251 44012", "+91 94280 88219"].map((dp) => (
+                        <button
+                          key={dp}
+                          type="button"
+                          onClick={() => handleRecipientPhoneChange(dp)}
+                          className={`px-2 py-0.5 rounded border font-mono transition-colors cursor-pointer shrink-0 ${
+                            recipientPhone === dp
+                              ? "bg-emerald-500/20 text-emerald-300 border-emerald-500"
+                              : "bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200"
+                          }`}
+                        >
+                          {dp}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleTriggerDemoFlow}
+                    className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg cursor-pointer transition-all active:scale-98"
+                  >
+                    <span>🚀 Run Real-Time Clearing Lifecycle Demo</span>
+                  </button>
+                </div>
+
                 <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
                   <h3 className="text-sm font-bold text-emerald-400 flex items-center gap-2 mb-2">
                     <span>💡 Interactive WhatsApp Bot Commands</span>
@@ -501,23 +669,32 @@ export default function WhatsAppBankingModal({ onClose, defaultCheque = null }) 
                   </div>
                 </div>
 
-                {/* Real Free wa.me Link for Testing on Phone */}
-                <div className="p-4 rounded-xl bg-emerald-950/40 border border-emerald-800/60">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-xs font-bold text-emerald-300">🌐 Free Real WhatsApp Click-to-Chat</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold">100% FREE</span>
+                {/* Real Free wa.me Link and QR for Testing on Phone */}
+                <div className="p-4 rounded-xl bg-emerald-950/40 border border-emerald-800/60 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-emerald-300">📱 Scan QR on Your Phone</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold">100% OFFLINE</span>
                   </div>
-                  <p className="text-[11px] text-slate-300 mb-3">
-                    You can open real WhatsApp Web or mobile chat with 1 click using the direct protocol:
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    Scan with your phone camera or Google Lens to immediately launch real WhatsApp with your account alert:
                   </p>
-                  <a
-                    href="https://wa.me/919876543210?text=STATUS%20000101"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="w-full py-2 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-2 transition-colors"
-                  >
-                    <span>💬 Open WhatsApp Web (wa.me)</span>
-                  </a>
+                  <div className="flex flex-col gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowQrModal(true)}
+                      className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg transition-transform hover:scale-[1.02] cursor-pointer"
+                    >
+                      <span>📷 Open Offline WhatsApp QR Code</span>
+                    </button>
+                    <a
+                      href="https://api.whatsapp.com/send?text=STATUS%20000101"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="w-full py-1.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 font-semibold text-[11px] flex items-center justify-center gap-1.5 transition-colors border border-slate-700 text-center"
+                    >
+                      <span>💬 Direct Web Link (wa.me)</span>
+                    </a>
+                  </div>
                 </div>
               </div>
             </div>
@@ -623,184 +800,393 @@ export default function WhatsAppBankingModal({ onClose, defaultCheque = null }) 
 
           {/* TAB 3: DISPATCH TEST ALERT */}
           {activeTab === "sender" && (
-            <div className="max-w-2xl mx-auto bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-xl">
-              <h3 className="text-sm font-bold text-white mb-1 flex items-center gap-2">
-                <span>🚀 Manual Alert Dispatcher</span>
-                <span className="text-xs font-normal text-emerald-400">(Zero-Cost / Free Simulation Mode)</span>
-              </h3>
-              <p className="text-xs text-slate-400 mb-4">
-                Simulate dispatching a live DLT SMS or WhatsApp Business notification for any cheque instrument.
-              </p>
-
-              <form onSubmit={handleManualDispatch} className="space-y-4 text-xs">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-slate-300 mb-1 font-semibold">Recipient Mobile Number</label>
-                    <input
-                      type="text"
-                      value={recipientPhone}
-                      onChange={(e) => setRecipientPhone(e.target.value)}
-                      className="w-full bg-slate-950 text-white px-3 py-2 rounded-lg border border-slate-700 focus:outline-none focus:border-emerald-500 font-mono"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-slate-300 mb-1 font-semibold">Customer / Account Holder Name</label>
-                    <input
-                      type="text"
-                      value={customerName}
-                      onChange={(e) => setCustomerName(e.target.value)}
-                      className="w-full bg-slate-950 text-white px-3 py-2 rounded-lg border border-slate-700 focus:outline-none focus:border-emerald-500"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-slate-300 mb-1 font-semibold">Notification Template</label>
-                    <select
-                      value={selectedTemplate}
-                      onChange={(e) => setSelectedTemplate(e.target.value)}
-                      className="w-full bg-slate-950 text-white px-3 py-2 rounded-lg border border-slate-700 focus:outline-none focus:border-emerald-500"
-                    >
-                      <option value="CHEQUE_PRESENTED">Cheque Presented Alert</option>
-                      <option value="CHEQUE_CLEARED">Cheque Cleared Confirmation</option>
-                      <option value="CHEQUE_RETURNED">Cheque Dishonoured / Return Memo</option>
-                      <option value="PPS_CONFIRMATION">Positive Pay Registration Confirmed</option>
-                      <option value="HIGH_VALUE_OTP">High-Value Checker OTP</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-slate-300 mb-1 font-semibold">Channel Delivery</label>
-                    <select
-                      value={dispatchChannel}
-                      onChange={(e) => setDispatchChannel(e.target.value)}
-                      className="w-full bg-slate-950 text-white px-3 py-2 rounded-lg border border-slate-700 focus:outline-none focus:border-emerald-500"
-                    >
-                      <option value="BOTH">WhatsApp & SMS (Simultaneous)</option>
-                      <option value="WHATSAPP">WhatsApp Only</option>
-                      <option value="SMS">SMS Only</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="p-3 bg-slate-950/70 rounded-xl border border-slate-800 space-y-3">
-                  <div className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">
-                    Template Variables (Cheque Details)
-                  </div>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                    <div>
-                      <span className="text-[10px] text-slate-400">Cheque Number:</span>
-                      <input
-                        type="text"
-                        value={dispatchParams.chequeNumber}
-                        onChange={(e) => setDispatchParams({ ...dispatchParams, chequeNumber: e.target.value })}
-                        className="w-full bg-slate-900 text-white px-2 py-1 rounded border border-slate-700 text-xs font-mono"
-                      />
-                    </div>
-
-                    <div>
-                      <span className="text-[10px] text-slate-400">Amount (INR):</span>
-                      <input
-                        type="text"
-                        value={dispatchParams.amount}
-                        onChange={(e) => setDispatchParams({ ...dispatchParams, amount: e.target.value })}
-                        className="w-full bg-slate-900 text-white px-2 py-1 rounded border border-slate-700 text-xs font-mono"
-                      />
-                    </div>
-
-                    <div>
-                      <span className="text-[10px] text-slate-400">Payee Name:</span>
-                      <input
-                        type="text"
-                        value={dispatchParams.payeeName}
-                        onChange={(e) => setDispatchParams({ ...dispatchParams, payeeName: e.target.value })}
-                        className="w-full bg-slate-900 text-white px-2 py-1 rounded border border-slate-700 text-xs"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-2">
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg shadow-emerald-950/50"
-                  >
-                    <span>{loading ? "Dispatching..." : `🚀 Dispatch ${dispatchChannel} Notification (Free)`}</span>
-                  </button>
-                </div>
-              </form>
-
-              {/* Real Phone Instant Delivery Card */}
-              {lastDispatched && (
-                <div className="mt-5 p-4 rounded-xl bg-gradient-to-br from-emerald-950/90 to-slate-900 border-2 border-emerald-500/80 shadow-2xl space-y-3 animate-in zoom-in-95 duration-200">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-base">📲</span>
-                      <span className="font-extrabold text-white text-xs sm:text-sm">
-                        Deliver to Real Phone: {lastDispatched.phone}
-                      </span>
-                      <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500 text-slate-950 font-extrabold uppercase">
-                        100% Free
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setLastDispatched(null)}
-                      className="text-slate-400 hover:text-white text-xs font-bold cursor-pointer"
-                    >
-                      ✕
-                    </button>
-                  </div>
-
-                  <p className="text-xs text-emerald-200 leading-relaxed">
-                    Apne real phone par bank alert dekhne ke liye neeche button par click karein ya QR code scan karein (seedha aapke WhatsApp me pre-filled banking card open ho jayega):
+            <div className="w-full max-w-5xl mx-auto space-y-4">
+              {/* Header Banner */}
+              <div className="bg-slate-900/90 p-4 rounded-2xl border border-slate-800 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <span>🚀 Manual & Instant Alert Dispatcher</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                      100% Free / Instant Scan
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Dispatch live DLT SMS or WhatsApp notifications with a real-time, scannable QR code ready on the screen as you type.
                   </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="flex h-2.5 w-2.5 relative">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                  </span>
+                  <span className="text-[11px] font-mono text-emerald-400 font-semibold">Live Offline QR Active</span>
+                </div>
+              </div>
 
-                  <div className="flex flex-wrap items-center gap-2.5 pt-1">
-                    {lastDispatched.directWhatsAppUrl && (
-                      <a
-                        href={lastDispatched.directWhatsAppUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-4 py-2.5 rounded-xl bg-[#25D366] hover:bg-[#1EBE5D] text-slate-950 font-black text-xs flex items-center gap-2 shadow-lg transition-transform hover:scale-105"
-                      >
-                        <span>💬 Open & Send in Real WhatsApp (Instant Delivery)</span>
-                      </a>
-                    )}
-
-                    {lastDispatched.directSmsUri && (
-                      <a
-                        href={lastDispatched.directSmsUri}
-                        className="px-3.5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-2 shadow-md transition-transform hover:scale-105"
-                      >
-                        <span>📱 Open in Phone SMS App</span>
-                      </a>
-                    )}
-                  </div>
-
-                  {lastDispatched.qrUrl && (
-                    <div className="flex items-center gap-4 pt-3 border-t border-emerald-800/60">
-                      <img
-                        src={lastDispatched.qrUrl}
-                        alt="WhatsApp Delivery QR"
-                        className="w-24 h-24 rounded-lg border-2 border-emerald-400 bg-white p-1 shrink-0 shadow-md"
+              {/* 2-Column Grid */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+                {/* LEFT COLUMN: PARAMETERS & FORM */}
+                <div className="lg:col-span-7 bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-xl space-y-4">
+                  <form onSubmit={handleManualDispatch} className="space-y-4 text-xs">
+                    {/* Recipient Number */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-slate-300 font-semibold flex items-center gap-1.5">
+                          <span>Recipient Mobile Number</span>
+                          <span className="text-[10px] text-slate-400">(Phone or Dummy)</span>
+                        </label>
+                      </div>
+                      <input
+                        type="text"
+                        value={recipientPhone}
+                        onChange={(e) => setRecipientPhone(e.target.value)}
+                        placeholder="+91 98765 43210"
+                        className="w-full bg-slate-950 text-white px-3 py-2 rounded-lg border border-slate-700 focus:outline-none focus:border-emerald-500 font-mono text-xs"
+                        required
                       />
-                      <div className="text-xs text-slate-300 space-y-1">
-                        <div className="font-bold text-emerald-300">Apne Phone Camera se Scan Karein:</div>
-                        <div className="text-[11px] text-slate-400">
-                          Camera ya Google Lens se scan karein, seedha aapke WhatsApp me SURAT PEOPLES CO OP BANK ka official alert pop-up ho jayega!
+                      {/* Quick Chips */}
+                      <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                        <span className="text-[10px] text-slate-400">Quick Autofill:</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRecipientPhone("+91 98251 44012");
+                            setCustomerName("Rajesh Varma");
+                          }}
+                          className="px-2 py-0.5 rounded text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 cursor-pointer"
+                        >
+                          Rajesh Varma (+91 98251 44012)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRecipientPhone("+91 99790 33411");
+                            setCustomerName("Sunita Roy");
+                          }}
+                          className="px-2 py-0.5 rounded text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 cursor-pointer"
+                        >
+                          Sunita Roy (+91 99790 33411)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRecipientPhone("");
+                          }}
+                          className="px-2 py-0.5 rounded text-[10px] bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-300 border border-emerald-600/40 cursor-pointer"
+                        >
+                          + Enter My Real Phone
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-slate-300 mb-1 font-semibold">Customer / Account Holder Name</label>
+                        <input
+                          type="text"
+                          value={customerName}
+                          onChange={(e) => setCustomerName(e.target.value)}
+                          className="w-full bg-slate-950 text-white px-3 py-2 rounded-lg border border-slate-700 focus:outline-none focus:border-emerald-500"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-300 mb-1 font-semibold">Channel Delivery</label>
+                        <select
+                          value={dispatchChannel}
+                          onChange={(e) => setDispatchChannel(e.target.value)}
+                          className="w-full bg-slate-950 text-white px-3 py-2 rounded-lg border border-slate-700 focus:outline-none focus:border-emerald-500"
+                        >
+                          <option value="BOTH">WhatsApp & SMS (Simultaneous)</option>
+                          <option value="WHATSAPP">WhatsApp Only</option>
+                          <option value="SMS">SMS Only</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Notification Template */}
+                    <div>
+                      <label className="block text-slate-300 mb-1 font-semibold">Notification Template (CTS Lifecycle)</label>
+                      <select
+                        value={selectedTemplate}
+                        onChange={(e) => setSelectedTemplate(e.target.value)}
+                        className="w-full bg-slate-950 text-white px-3 py-2 rounded-lg border border-slate-700 focus:outline-none focus:border-emerald-500 font-medium"
+                      >
+                        <option value="CHEQUE_PRESENTED">📥 Cheque Presented Alert</option>
+                        <option value="CHEQUE_VERIFIED">🔍 Cheque Verified by Drawee Maker</option>
+                        <option value="CHEQUE_CLEARED">✅ Cheque Cleared & Debited Confirmation</option>
+                        <option value="CHEQUE_RETURNED">⚠️ Cheque Dishonoured / Return Memo (Rule 16)</option>
+                        <option value="PPS_CONFIRMATION">🛡️ Positive Pay Registration Confirmed</option>
+                        <option value="HOURLY_BATCH_SETTLED">⏱️ RBI Continuous Clearing Hourly Batch Settled</option>
+                        <option value="MULE_ALERT">🚨 MuleHunter AI Anomaly Flagged</option>
+                        <option value="HIGH_VALUE_OTP">🔐 High-Value Maker-Checker Approval OTP</option>
+                      </select>
+                    </div>
+
+                    {/* Cheque Details */}
+                    <div className="p-3 bg-slate-950/70 rounded-xl border border-slate-800 space-y-3">
+                      <div className="text-[11px] font-bold text-slate-300 uppercase tracking-wider flex items-center justify-between">
+                        <span>Cheque Instrument Parameters</span>
+                        <span className="text-[10px] text-emerald-400 font-normal">Auto-bound to live message</span>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        <div>
+                          <span className="text-[10px] text-slate-400">Cheque Number:</span>
+                          <input
+                            type="text"
+                            value={dispatchParams.chequeNumber}
+                            onChange={(e) => setDispatchParams({ ...dispatchParams, chequeNumber: e.target.value })}
+                            className="w-full bg-slate-900 text-white px-2 py-1 rounded border border-slate-700 text-xs font-mono"
+                          />
                         </div>
+
+                        <div>
+                          <span className="text-[10px] text-slate-400">Amount (INR):</span>
+                          <input
+                            type="text"
+                            value={dispatchParams.amount}
+                            onChange={(e) => setDispatchParams({ ...dispatchParams, amount: e.target.value })}
+                            className="w-full bg-slate-900 text-white px-2 py-1 rounded border border-slate-700 text-xs font-mono"
+                          />
+                        </div>
+
+                        <div>
+                          <span className="text-[10px] text-slate-400">Payee Name:</span>
+                          <input
+                            type="text"
+                            value={dispatchParams.payeeName}
+                            onChange={(e) => setDispatchParams({ ...dispatchParams, payeeName: e.target.value })}
+                            className="w-full bg-slate-900 text-white px-2 py-1 rounded border border-slate-700 text-xs"
+                          />
+                        </div>
+
+                        <div>
+                          <span className="text-[10px] text-slate-400">Account Number:</span>
+                          <input
+                            type="text"
+                            value={dispatchParams.accountNumber}
+                            onChange={(e) => setDispatchParams({ ...dispatchParams, accountNumber: e.target.value })}
+                            className="w-full bg-slate-900 text-white px-2 py-1 rounded border border-slate-700 text-xs font-mono"
+                          />
+                        </div>
+
+                        <div>
+                          <span className="text-[10px] text-slate-400">e-Kuber UTR:</span>
+                          <input
+                            type="text"
+                            value={dispatchParams.utr}
+                            onChange={(e) => setDispatchParams({ ...dispatchParams, utr: e.target.value })}
+                            className="w-full bg-slate-900 text-white px-2 py-1 rounded border border-slate-700 text-xs font-mono"
+                          />
+                        </div>
+
+                        <div>
+                          <span className="text-[10px] text-slate-400">Return Reason:</span>
+                          <input
+                            type="text"
+                            value={dispatchParams.returnReason}
+                            onChange={(e) => setDispatchParams({ ...dispatchParams, returnReason: e.target.value })}
+                            className="w-full bg-slate-900 text-white px-2 py-1 rounded border border-slate-700 text-xs"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-2">
+                      <button
+                        type="submit"
+                        disabled={loading}
+                        className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg shadow-emerald-950/50"
+                      >
+                        <span>{loading ? "Dispatching..." : `🚀 Dispatch ${dispatchChannel} Notification (Free)`}</span>
+                      </button>
+                    </div>
+                  </form>
+
+                  {/* Dispatched Confirmation Banner */}
+                  {lastDispatched && (
+                    <div className="p-3.5 rounded-xl bg-emerald-950/80 border border-emerald-500/80 text-xs space-y-2 animate-in zoom-in-95 duration-200">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-emerald-300 flex items-center gap-1.5">
+                          <span>✅ Dispatched Successfully!</span>
+                          <span className="text-[10px] font-mono text-emerald-400">({lastDispatched.id || "ACK-OK"})</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setLastDispatched(null)}
+                          className="text-slate-400 hover:text-white text-xs cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-emerald-200">
+                        Notification has been logged to Outbox and broadcasted over live SSE. Scan the QR code on the right or click below to launch in WhatsApp:
+                      </p>
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        <a
+                          href={lastDispatched.directWhatsAppUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-3 py-1.5 rounded-lg bg-[#25D366] hover:bg-[#1EBE5D] text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow cursor-pointer"
+                        >
+                          <span>💬 Open Dispatched WhatsApp</span>
+                        </a>
+                        {lastDispatched.directSmsUri && (
+                          <a
+                            href={lastDispatched.directSmsUri}
+                            className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-1.5 shadow cursor-pointer"
+                          >
+                            <span>📱 Open Phone SMS</span>
+                          </a>
+                        )}
                       </div>
                     </div>
                   )}
                 </div>
-              )}
+
+                {/* RIGHT COLUMN: LIVE QR CODE & AS-IT-IS WHATSAPP PREVIEW */}
+                <div className="lg:col-span-5 bg-gradient-to-br from-slate-900 to-slate-950 p-5 rounded-2xl border border-emerald-500/50 shadow-2xl space-y-4">
+                  {/* Top Bar with Mode Toggle */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                        <span>📲 Live WhatsApp QR Code</span>
+                        <span className="px-1.5 py-0.5 rounded text-[9px] bg-emerald-500 text-slate-950 font-black uppercase">
+                          As It Is
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowQrModal(true)}
+                        className="text-[11px] text-emerald-400 hover:text-emerald-300 font-semibold cursor-pointer underline"
+                      >
+                        Enlarge Fullscreen ↗
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      Scan directly with your phone camera or Google Lens. Pre-filled with the active banking alert:
+                    </p>
+                  </div>
+
+                  {/* QR Mode Switcher */}
+                  <div className="p-1 bg-slate-950 rounded-xl border border-slate-800 grid grid-cols-2 gap-1 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => setDispatchQrMode("universal")}
+                      className={`py-1.5 px-2 rounded-lg font-bold text-center transition-all cursor-pointer ${
+                        dispatchQrMode === "universal"
+                          ? "bg-emerald-600 text-white shadow-sm"
+                          : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      <span>🌟 Universal (Any Phone)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDispatchQrMode("direct")}
+                      className={`py-1.5 px-2 rounded-lg font-bold text-center transition-all cursor-pointer ${
+                        dispatchQrMode === "direct"
+                          ? "bg-emerald-600 text-white shadow-sm"
+                          : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      <span>📱 Direct to Number</span>
+                    </button>
+                  </div>
+
+                  <div className="text-[10px] text-slate-400 px-1">
+                    {dispatchQrMode === "universal" ? (
+                      <span className="text-emerald-400 font-medium">
+                        ✨ <strong>Guaranteed 100% reliable:</strong> Opens WhatsApp to "Message yourself" or any contact. Never gives "Number not on WhatsApp" error!
+                      </span>
+                    ) : (
+                      <span className="text-blue-400 font-medium">
+                        📲 Directly targets mobile number <strong>{cleanPhone || "None specified"}</strong> via wa.me link.
+                      </span>
+                    )}
+                  </div>
+
+                  {/* High Contrast Vector QR Box */}
+                  <div className="flex flex-col items-center justify-center p-4 bg-white rounded-2xl shadow-xl border-4 border-emerald-500/80">
+                    {dispatchQrDataUrl ? (
+                      <img
+                        src={dispatchQrDataUrl}
+                        alt="WhatsApp Live Alert QR"
+                        className="w-[220px] h-[220px] object-contain rounded-lg shadow-sm"
+                      />
+                    ) : (
+                      <div className="w-[220px] h-[220px] flex items-center justify-center text-slate-500 text-xs">
+                        Generating offline QR...
+                      </div>
+                    )}
+                    <div className="mt-2 text-[10px] font-mono font-bold text-emerald-950 uppercase tracking-wider flex items-center gap-1">
+                      <span>✓ SURAT PEOPLES CO OP BANK • CTS ALERT</span>
+                    </div>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <a
+                      href={liveTargetUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="py-2 px-3 rounded-xl bg-[#25D366] hover:bg-[#1EBE5D] text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 shadow transition-transform hover:scale-102 cursor-pointer"
+                    >
+                      <span>💬 Open WhatsApp</span>
+                    </a>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(liveTargetUrl);
+                        setCopiedLink(true);
+                        setTimeout(() => setCopiedLink(false), 2000);
+                      }}
+                      className="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer border border-slate-700"
+                    >
+                      <span>{copiedLink ? "✓ Link Copied!" : "📋 Copy Link"}</span>
+                    </button>
+                  </div>
+
+                  {/* WhatsApp Message Preview Balloon */}
+                  <div className="bg-[#0b141a] p-3 rounded-xl border border-emerald-900/40 text-xs space-y-1.5 shadow-inner">
+                    <div className="flex items-center justify-between text-[10px] text-slate-400">
+                      <span className="font-bold text-emerald-400 flex items-center gap-1">
+                        <span>💬 WhatsApp Preview</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard?.writeText(computedAlertMessage);
+                          setCopiedText(true);
+                          setTimeout(() => setCopiedText(false), 2000);
+                        }}
+                        className="text-[10px] text-slate-400 hover:text-white underline cursor-pointer"
+                      >
+                        {copiedText ? "✓ Copied!" : "Copy Text"}
+                      </button>
+                    </div>
+
+                    <div className="bg-[#005c4b] p-3 rounded-xl text-white font-sans text-[11px] leading-relaxed shadow space-y-1 whitespace-pre-wrap">
+                      {computedAlertMessage}
+                      <div className="text-[9px] text-emerald-200/70 text-right flex items-center justify-end gap-1 pt-1">
+                        <span>{new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                        <span className="text-sky-300 font-bold">✓✓</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Scan Instructions Tip */}
+                  <div className="p-2.5 bg-emerald-950/40 rounded-xl border border-emerald-800/40 text-[11px] text-emerald-200/90 leading-relaxed flex items-start gap-2">
+                    <span className="text-base">💡</span>
+                    <span>
+                      <strong>How to test on your phone:</strong> Point your phone camera or Google Lens at the QR code above. Tap the link to open WhatsApp, and tap <em>"Message yourself"</em> to see the official bank alert delivered instantly!
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -952,6 +1338,15 @@ export default function WhatsAppBankingModal({ onClose, defaultCheque = null }) 
           )}
         </div>
       </div>
+
+      {showQrModal && (
+        <WhatsAppQrModal
+          isOpen={showQrModal}
+          onClose={() => setShowQrModal(false)}
+          defaultPhone={cleanPhone || recipientPhone}
+          initialMessage={computedAlertMessage || "STATUS 000101"}
+        />
+      )}
     </div>
   );
 }

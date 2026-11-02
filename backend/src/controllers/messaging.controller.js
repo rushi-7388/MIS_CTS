@@ -155,6 +155,45 @@ async function broadcastBatch(req, res, next) {
   }
 }
 
+function getActiveCustomer(req, res) {
+  const customer = messagingService.getActiveCustomer();
+  return res.json({ customer });
+}
+
+async function registerActiveCustomer(req, res, next) {
+  try {
+    const { phone, name, accountNumber, sendWelcome } = req.body;
+    if (!phone) {
+      return res.status(400).json({ error: "Phone number is required" });
+    }
+    const result = await messagingService.registerActiveCustomer({
+      phone,
+      name,
+      accountNumber,
+      sendWelcome: sendWelcome !== false,
+    });
+    return res.status(200).json({
+      message: "Customer WhatsApp registered and automated zero-click real-time banking enabled.",
+      ...result,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function triggerRealtimeDemo(req, res, next) {
+  try {
+    const { phone } = req.body;
+    const result = await messagingService.triggerRealtimeDemoFlow(phone);
+    return res.json({
+      message: "Real-time zero-click automated clearing flow initiated.",
+      ...result,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   getLogs,
   getTemplates,
@@ -167,4 +206,7 @@ module.exports = {
   getConfig,
   updateConfig,
   broadcastBatch,
+  getActiveCustomer,
+  registerActiveCustomer,
+  triggerRealtimeDemo,
 };
